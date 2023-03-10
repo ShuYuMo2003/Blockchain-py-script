@@ -6,9 +6,9 @@ from time import sleep, time
 from tqdm import tqdm
 import json
 
-co = pymongo.MongoClient('mongodb://localhost:27017/')['bc']['events']
-queueco = pymongo.MongoClient('mongodb://localhost:27017/')['bc']['queue']
-poolco = pymongo.MongoClient('mongodb://localhost:27017/')['bc']['pools']
+co = pymongo.MongoClient('mongodb://localhost:27017/')['symbc']['events']
+queueco = pymongo.MongoClient('mongodb://localhost:27017/')['symbc']['queue']
+poolco = pymongo.MongoClient('mongodb://localhost:27017/')['symbc']['pools']
 w3 = Web3(Web3.HTTPProvider("https://eth.public-rpc.com/"))
 
 toBeApply = []
