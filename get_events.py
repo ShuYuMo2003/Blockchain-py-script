@@ -216,7 +216,10 @@ if __name__ == '__main__':
                 if event:
                     toBeApply.append(event)
 
-            queueco.insert_many(toBeApply)
+            toBeApply.sort(key= lambda x : (x["_id"]["blockNumber"], x["_id"]["logIndex"]))
+            for data in tqdm(toBeApply):
+                queueco.insert_one(data)
+
             print(f'++ {len(toBeApply)} events saved.')
             toBeApply = []
 
