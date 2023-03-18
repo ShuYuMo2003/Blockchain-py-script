@@ -4,6 +4,7 @@ from multiprocessing import Pool, cpu_count
 from time import sleep, time
 from tqdm import tqdm
 import json
+from requests import post
 import redis
 
 w3 = Web3(Web3.HTTPProvider("https://eth.public-rpc.com/"))
@@ -11,6 +12,7 @@ Red = redis.Redis(host='127.0.0.1',port=6379,db=0)
 
 toBeApply = []
 AllListingPool = set()
+AllListingPair = set()
 
 topicsSign = {
     'initialize' : '0x98636036cb66a9c19a37435efc1e90142190214e8abeb821bdba3f2990dd4c95',
@@ -34,6 +36,40 @@ def hexstring2int(s, len=256):
 
 def to_token_address(hexBytes):
     return Web3.toChecksumAddress(Web3.toHex(hexBytes[-20:]))
+
+def fetchV2PairsReserve(address, afterBlockNumber):
+    result = post(
+        'https://mainnet.gateway.tenderly.co/2jRiGkCHOkLQ9BjEkbNhal',
+        headers = { 'Content-Type': 'application/json' },
+        data = json.dumps({
+            "id": 0,
+            "jsonrpc": "2.0",
+            "method": "tenderly_simulateTransaction",
+            "params": [
+                {
+                "from": "0x0000000000000000000000000000000000000000",
+                "to": str(address),
+                "gas": "0x7a1200",
+                "gasPrice": "0x0",
+                "value": "0x0",
+                "data": "0x0902f1ac"
+                },
+                hex(afterBlockNumber),
+            ]
+        })
+    )
+    if(result):
+        print(result.text)
+        outputs = json.loads(result.text)['result']['trace'][0]['decodedOutput']
+        reserve0, reserve1 = 0, 0
+        for output in outputs:
+            if output['name'] == '_reserve0':
+                reserve0 = output['value']
+            if output['name'] == '_reserve1':
+                reserve1 = output['value']
+        return (reserve0, reserve1)
+    else:
+        return (None, None)
 
 def fetchLogs(args, output = True):
     L, R = args["fromBlock"], args["toBlock"]
@@ -114,6 +150,12 @@ def processLogs(log):
         rawdata = outs + str(_['blockNumber']) + '0' * (5 - len(str(_['logIndex']))) + str(_['logIndex']) # blocknumber + 5位长度 logindex
         return rawdata
 
+def ProcessV2Events(log):
+    address = log['address']
+    blockNumber = log['blockNumber']
+    rev0, rev1 = fetchV2PairsReserve(address, blockNumber)
+    return " ".join([ '2set', address, str(rev0), str(rev1)]) + "\n" + str(log['blockNumber']) + '0' * (5 - len(str(log['logIndex']))) + str(log['logIndex'])
+
 def fetchAllPoolHandle(L, R):
     global toBeApply
     events = fetchLogs({
@@ -134,6 +176,28 @@ def fetchAllPoolHandle(L, R):
            addresses.append(str(result.split()[-2]))
     return addresses
 
+def fetchAllPairHandle(L, R):
+    global toBeApply
+    events = fetchLogs({
+        "address": Web3.toChecksumAddress("0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f"),
+        "fromBlock": hex(L),
+        "toBlock": hex(R),
+        "topics": [ '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9' ]
+    })
+    print(f'\n-- {len(events)} Pairs\' info fetched.')
+    pairs = []
+    for log in events:
+        address =  Web3.toChecksumAddress("0x" + log["data"][2:66][-40:])
+        token0 = to_token_address(log["topics"][1])
+        token1 = to_token_address(log["topics"][2])
+        idxHash = str(log['blockNumber']) + '0' * (5 - len(str(log['logIndex']))) + str(log['logIndex'])
+        pairs.append((address, token0, token1, idxHash))
+
+    for pair in pairs:
+        toBeApply.append(f'2create {pair[0]} {pair[1]} {pair[2]} {pair[3]}')
+
+    return [pair[0] for pair in pairs]
+
 
 def fetchEvents(L, R):
     global AllListingPool
@@ -151,11 +215,10 @@ def fetchEvents(L, R):
 
 
 def getDbLatestBlock():
-    global AllListingPool
     while(not Red.get("UpdatedToBlockNumber")):
         sleep(0.5)
         print('Not Found Data in db')
-    AllListingPool = set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
+
     return int(Red.get("UpdatedToBlockNumber"))
 
 def getLatestBlock():
@@ -170,38 +233,41 @@ def getLatestBlock():
 
 if __name__ == '__main__':
     steplength = 3000
-    while True:
-        nowLatestBlock = getLatestBlock()
-        dbLatestBlock = getDbLatestBlock()
+
+    AllListingPool = set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
+    AllListingPair = set([i.decode('utf-8') for i in list(Red.hkeys("v2pairsData"))])
+    nowLatestBlock = getLatestBlock()
+    dbLatestBlock = getDbLatestBlock()
+    if dbLatestBlock == 12369728:
+        ps = json.loads(open('v2Pairs.json', 'r').read())
+        toBeApply = [f'2create {i[0]} {i[1]} {i[2]} 1236972800000' for i in ps]
+        [AllListingPair.add(i[0]) for i in ps]
+
+    print(f'+++++++++++++++++++++++++++++++++++++++++ Process events from block {dbLatestBlock + 1} to {nowLatestBlock} +++++++++++++++++++++++++++++++++++++++++')
 
 
-        if(nowLatestBlock == dbLatestBlock):
-            print('All Blocks have been synced in db.')
-            sleep(0.5)
-            continue
-        print(f'+++++++++++++++++++++++++++++++++++++++++ Process events from block {dbLatestBlock + 1} to {nowLatestBlock} +++++++++++++++++++++++++++++++++++++++++')
+    for i in range(dbLatestBlock + 1, nowLatestBlock + 1, steplength):
+        L = i
+        R = min(nowLatestBlock, i + steplength - 1)
 
+        print(f"\n\n\n\n============================================= Processing blocks from {L} to {R} =============================================")
 
-        for i in range(dbLatestBlock + 1, nowLatestBlock + 1, steplength):
-            L = i
-            R = min(nowLatestBlock, i + steplength - 1)
+        NewFriend = fetchAllPoolHandle(L, R) # 看看我不在的日子里，链上又多了哪些新朋友 QwQ
+        New2Friend = fetchAllPairHandle(L, R)
 
-            print(f"\n\n\n\n============================================= Processing blocks from {L} to {R} =============================================")
+        [AllListingPool.add(i) for i in NewFriend]
+        [AllListingPair.add(i) for i in New2Friend]
 
-            NewFriend = fetchAllPoolHandle(L, R) # 看看我不在的日子里，链上又多了哪些新朋友 QwQ
+        events = fetchEvents(L, R)
+        for event in [processLogs(_) for _ in events]:
+            if event:
+                toBeApply.append(event)
 
-            [AllListingPool.add(i) for i in NewFriend]
+        toBeApply.sort(key= lambda x : (x.split()[-1]))
+        for data in tqdm(toBeApply):
+            Red.rpush('queue', data)
 
-            events = fetchEvents(L, R)
-            for event in [processLogs(_) for _ in events]:
-                if event:
-                    toBeApply.append(event)
-
-            toBeApply.sort(key= lambda x : (x.split()[-1]))
-            for data in tqdm(toBeApply):
-                Red.rpush('queue', data)
-
-            print(f'++ {len(toBeApply)} events saved.')
-            toBeApply = []
+        print(f'++ {len(toBeApply)} events saved.')
+        toBeApply = []
 
 
