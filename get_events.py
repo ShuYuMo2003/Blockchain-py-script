@@ -1,17 +1,16 @@
 from web3 import Web3
 from functools import reduce
 from multiprocessing import Pool, cpu_count
-import pymongo
 from time import sleep, time
 from tqdm import tqdm
 import json
+import redis
 
-co = pymongo.MongoClient('mongodb://localhost:27017/')['symbc']['events']
-queueco = pymongo.MongoClient('mongodb://localhost:27017/')['symbc']['queue']
-poolco = pymongo.MongoClient('mongodb://localhost:27017/')['symbc']['pools']
 w3 = Web3(Web3.HTTPProvider("https://eth.public-rpc.com/"))
+Red = redis.Redis(host='127.0.0.1',port=6379,db=0)
 
 toBeApply = []
+AllListingPool = set()
 
 topicsSign = {
     'initialize' : '0x98636036cb66a9c19a37435efc1e90142190214e8abeb821bdba3f2990dd4c95',
@@ -109,37 +108,14 @@ def processLogs(log):
             maxLiquidityPerTick, # maxLiquidityPerTick
             address, # poolAddress
         ]]) + "\n"
-        rawdata = {
-            'type': '3',
-            '_id': {'address': address},
-            'token0': token0,
-            'token1': token1,
-            'fee': hexstring2int(log["topics"][3].hex()),
-            'maxLiquidityPerTick': str(maxLiquidityPerTick),
-            'tickSpacing': hexstring2int(log["data"][2:66]),
-            'birthBlock': log["blockNumber"]
-        }
-        poolco.insert_one(rawdata)
 
     _ = log
     if(outs != ""):
-        rawdata = {
-            'blockNumber': _['blockNumber'],
-            '_id' : {'blockNumber': _['blockNumber'], 'logIndex': _['logIndex']},
-            'address': _['address'],
-            'topics': list(map(lambda x: x.hex(), list(_['topics']))),
-            'data': _['data'],
-            'transactionHash': _['transactionHash'].hex(),
-            'transactionIndex': _['transactionIndex'],
-            'blockHash': _['blockHash'].hex(),
-            'removed': _['removed'],
-            'handledData': outs,
-        }
-        co.insert_one(rawdata)
-        # queueco.insert_one(data) 要保证 Pool created events 和其他 events 同时进库，防止 uniswapv3-cpp 漏掉 event
+        rawdata = outs + str(_['blockNumber']) + '0' * (5 - len(str(_['logIndex']))) + str(_['logIndex']) # blocknumber + 5位长度 logindex
         return rawdata
 
 def fetchAllPoolHandle(L, R):
+    global toBeApply
     events = fetchLogs({
         "address": Web3.toChecksumAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"),
         "fromBlock": hex(L),
@@ -148,37 +124,39 @@ def fetchAllPoolHandle(L, R):
     })
     print(f'-- {len(events)} Pools\' info fetched.')
 
-    with Pool(processes=6) as _pool:
+    addresses = []
+    with Pool(processes=9) as _pool:
         mutiply_res = [_pool.apply_async(processLogs,  (_,)  )  for _ in events]
         for res in tqdm(mutiply_res):
-           toBeApply.append(res.get())
+           result = res.get()
+           assert(result)
+           toBeApply.append(result)
+           addresses.append(str(result.split()[-2]))
+    return addresses
 
 
 def fetchEvents(L, R):
+    global AllListingPool
     events = []
-    pools = list(poolco.find({ "birthBlock": { "$lte": R} }))
-    print(f"\nFrom Block {L} to {R}, {len(pools)} uniswap-v3 pools in total.")
-    with Pool(processes=6) as _pool:
+    print(f"\nFrom Block {L} to {R}, {len(AllListingPool)} uniswap-v3 pools in total.")
+    with Pool(processes=9) as _pool:
         mutiply_res = [_pool.apply_async(fetchLogs,  ({
-                                                        "address": pool['_id']["address"],
+                                                        "address": pool,
                                                         "fromBlock": hex(L),
                                                         "toBlock": hex(R)
-                                                    }, False)  )  for pool in pools]
+                                                    }, False)  )  for pool in AllListingPool]
         for res in tqdm(mutiply_res):
             events.extend(res.get(timeout=500))
     return events
 
+
 def getDbLatestBlock():
-    ret = list( co.find({"address":{"$ne":"0x1F98431c8aD98523631AE4a59f267346ea31F984"}}).sort([("blockNumber", -1), ("logIndex", -1)]).limit(1) )
-    retpool = list( co.find().sort([("_id.blockNumber", -1), ("_id.logIndex", -1)]).limit(1) )
-
-    if len(ret) == 0:
-        print('Not found any data in db.')
-        poolco.create_index([('birthBlock', 1)])
-        queueco.create_index([('blockNumber', 1)])
-        return (12369611, 12369611)
-
-    return (ret[0]['_id']['blockNumber'], retpool[0]['_id']['blockNumber'])
+    global AllListingPool
+    while(not Red.get("UpdatedToBlockNumber")):
+        sleep(0.5)
+        print('Not Found Data in db')
+    AllListingPool = set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
+    return int(Red.get("UpdatedToBlockNumber"))
 
 def getLatestBlock():
     while True:
@@ -194,7 +172,7 @@ if __name__ == '__main__':
     steplength = 3000
     while True:
         nowLatestBlock = getLatestBlock()
-        (dbLatestBlock, dbLatestBlockForPool) = getDbLatestBlock()
+        dbLatestBlock = getDbLatestBlock()
 
 
         if(nowLatestBlock == dbLatestBlock):
@@ -210,15 +188,18 @@ if __name__ == '__main__':
 
             print(f"\n\n\n\n============================================= Processing blocks from {L} to {R} =============================================")
 
-            fetchAllPoolHandle(L, R) # 看看我不在的日子里，链上又多了哪些新朋友 QwQ
+            NewFriend = fetchAllPoolHandle(L, R) # 看看我不在的日子里，链上又多了哪些新朋友 QwQ
+
+            [AllListingPool.add(i) for i in NewFriend]
+
             events = fetchEvents(L, R)
             for event in [processLogs(_) for _ in events]:
                 if event:
                     toBeApply.append(event)
 
-            toBeApply.sort(key= lambda x : (x["_id"]["blockNumber"], x["_id"]["logIndex"]))
+            toBeApply.sort(key= lambda x : (x.split()[-1]))
             for data in tqdm(toBeApply):
-                queueco.insert_one(data)
+                Red.rpush('queue', data)
 
             print(f'++ {len(toBeApply)} events saved.')
             toBeApply = []
