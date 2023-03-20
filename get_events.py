@@ -167,7 +167,7 @@ def fetchAllPoolHandle(L, R):
     print(f'-- {len(events)} Pools\' info fetched.')
 
     addresses = []
-    with Pool(processes=9) as _pool:
+    with Pool(processes=15) as _pool:
         mutiply_res = [_pool.apply_async(processLogs,  (_,)  )  for _ in events]
         for res in tqdm(mutiply_res):
            result = res.get()
@@ -203,7 +203,7 @@ def fetchEvents(L, R):
     global AllListingPool
     events = []
     print(f"\nFrom Block {L} to {R}, {len(AllListingPool)} uniswap-v3 pools in total.")
-    with Pool(processes=9) as _pool:
+    with Pool(processes=15) as _pool:
         mutiply_res = [_pool.apply_async(fetchLogs,  ({
                                                         "address": pool,
                                                         "fromBlock": hex(L),
