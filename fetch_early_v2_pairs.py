@@ -32,7 +32,7 @@ if __name__ == '__main__':
                         "fromBlock": hex(L),
                         "toBlock": hex(L + 3000 - 1),
                         "topics": [ '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9' ]
-                    },)) for L in range(10000834, 12370728, 3000) ]
+                    },)) for L in range(10000834, 16880001, 3000) ]
         for res in tqdm(mutily_res):
             for log in res.get():
                 assert(log["topics"][0].hex() == '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9')

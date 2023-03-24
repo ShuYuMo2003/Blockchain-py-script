@@ -10,8 +10,12 @@ from random import choice
 import random
 
 w3 = Web3(Web3.HTTPProvider("https://eth.public-rpc.com/"))
-Red = redis.Redis(host='127.0.0.1',port=8080,db=0)
-# ListeningPairs = set()
+Red = redis.Redis(host='192.168.80.128',port=8080,db=0)
+
+BlackList = [
+    '0x01113a97c0273f3C7A96d304D9A034992Ddf0D96',
+    '0x5F1dddbf348aC2fbe22a163e30F99F9ECE3DD50a',
+]
 
 topicsSign = {
     'initialize' : '0x98636036cb66a9c19a37435efc1e90142190214e8abeb821bdba3f2990dd4c95',
@@ -29,38 +33,31 @@ tendlyEthRPCPoint = ['https://mainnet.gateway.tenderly.co/2jRiGkCHOkLQ9BjEkbNhal
 
 commonRPCPointUri = [
     "https://eth.public-rpc.com/",
-    "https://eth.public-rpc.com/",
-    "https://eth.public-rpc.com/",
-    "https://eth.public-rpc.com/",
-    "https://eth.public-rpc.com/",
-    "https://eth.llamarpc.com",
+    # "https://eth.public-rpc.com/",
+    # "https://eth.llamarpc.com",
     # "https://uk.rpc.blxrbdn.com",
     # "https://virginia.rpc.blxrbdn.com",
     # "https://eth.rpc.blxrbdn.com",
     "https://ethereum.blockpi.network/v1/rpc/public",
-    "https://ethereum.blockpi.network/v1/rpc/public",
-    "https://ethereum.blockpi.network/v1/rpc/public",
-    "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
+    # "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
     # "https://eth-mainnet.public.blastapi.io",
-    "https://rpc.builder0x69.io",
-    "https://ethereum.publicnode.com",
-    "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
+    # "https://rpc.builder0x69.io",
+    # "https://ethereum.publicnode.com",
+    # "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
     # "https://1rpc.io/eth",
-    "https://rpc.flashbots.net",
-    "https://rpc.payload.de",
-    "https://api.zmok.io/mainnet/oaen6dy8ff6hju9k",
+    # "https://rpc.flashbots.net",
+    # "https://rpc.payload.de",
+    # "https://api.zmok.io/mainnet/oaen6dy8ff6hju9k",
     "https://rpc.ankr.com/eth",
-    "https://eth-rpc.gateway.pokt.network",
-    "https://api.securerpc.com/v1",
-    "https://cloudflare-eth.com",
-    "https://endpoints.omniatech.io/v1/eth/mainnet/public",
-    "https://beta-be.gashawk.io:3001/proxy/rpc",
-    "https://eth.api.onfinality.io/public",
-    "https://eth.api.onfinality.io/public",
-    "https://eth.api.onfinality.io/public",
-    "https://rpc.coinsdo.com/eth",
-    "https://rpc.coinsdo.com/eth",
-    "https://rpc.coinsdo.com/eth",
+    # "https://eth-rpc.gateway.pokt.network",
+    # "https://api.securerpc.com/v1",
+    # "https://cloudflare-eth.com",
+    # "https://endpoints.omniatech.io/v1/eth/mainnet/public",
+    # "https://beta-be.gashawk.io:3001/proxy/rpc",
+    # "https://eth.api.onfinality.io/public",
+    # "https://rpc.coinsdo.com/eth",
+    # "https://eth.api.onfinality.io/public",
+    # "https://rpc.coinsdo.com/eth",
 ]
 
 commonRPCPointHandle = [Web3(Web3.HTTPProvider(Uri)) for Uri in commonRPCPointUri]
@@ -143,11 +140,23 @@ def fetchLogs(args, output = True):
             if(output): print(f"     fetched {len(ret)} infos from blocks ( {int(L, 16)} - {int(R, 16)} ) in {delta} s. rate = {len(ret) / delta}. ")
             return ret
         except Exception as e:
+            print(str(e))
             # print(f"Error occurs when fetching block [{ int(L, 16) }, { int(R, 16) }]", e)
             # sleep(5 / (random.randint(2, 8)))
             # if "429 Client Error" in str(e):
                 # sleep(2)
             continue
+
+# 0x7d697d789ee19bc376474E0167BADe9535A28CF4
+ABIABI = json.load(open("abis/v3_pool.abi"))
+def GetMaxLiquidityPerTick(log):
+    while True:
+        try:
+            return choice(commonRPCPointHandle).eth.contract(Web3.toChecksumAddress("0x" + log["data"][-40:]), abi=ABIABI).functions.maxLiquidityPerTick().call()
+        except Exception as e:
+            print(Web3.toChecksumAddress("0x" + log["data"][-40:]))
+            print(e)
+            pass
 
 def ProcessV3Events(log):
     outs = ""
@@ -155,7 +164,7 @@ def ProcessV3Events(log):
     # with open('logs.txt', 'a') as f:
         # f.write(str(log) + '\n\n')
 
-    if(len(log['topics']) < 1):
+    if(len(log['topics']) < 1 or log['address'] in BlackList):
         return ""
 
 
@@ -195,7 +204,7 @@ def ProcessV3Events(log):
         ]]) + "\n"
 
     elif log["topics"][0].hex() == topicsSign['poolcreated']:
-        maxLiquidityPerTick = w3.eth.contract(Web3.toChecksumAddress("0x" + log["data"][-40:]), abi=json.load(open("abis/v3_pool.abi"))).functions.maxLiquidityPerTick().call()
+        maxLiquidityPerTick = GetMaxLiquidityPerTick(log)
         address =  Web3.toChecksumAddress("0x" + log["data"][-40:])
         token0 = to_token_address(log["topics"][1])
         token1 = to_token_address(log["topics"][2])
@@ -217,7 +226,7 @@ def ProcessV3Events(log):
 
 ToBeUpdateAddress = set()
 def ProcessV2Events(log):
-    if(len(log["topics"]) < 1): return None
+    if(len(log["topics"]) < 1 or log['address'] in BlackList): return None
     # global ListeningPairs
     idxHash = str(log['blockNumber']) + '0' * (5 - len(str(log['logIndex']))) + str(log['logIndex'])
     if(log["topics"][0].hex() == '0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9'):
@@ -232,13 +241,14 @@ def ProcessV2Events(log):
 #        return " ".join([ '2set', address, str(rev0), str(rev1)]) + "\n" + str(log['blockNumber']) + '0' * (5 - len(str(log['logIndex']))) + str(log['logIndex'])
 
 
-def PushRangeBlock(currentHandleBlockNumber, NextHandleBlockNumber):
+def PushRangeBlock(currentHandleBlockNumber, NextHandleBlockNumber, _Address):
     st = time()
     events = fetchLogs({"fromBlock": hex(currentHandleBlockNumber), "toBlock": hex(NextHandleBlockNumber - 1)}, False)
 
     # process v3 events
     v3e = []
     for event in events:
+        if(event['address'] not in _Address): continue
         _ = ProcessV3Events(event)
         if _: v3e.append(_)
 
@@ -246,6 +256,7 @@ def PushRangeBlock(currentHandleBlockNumber, NextHandleBlockNumber):
     # ToBeUpdateAddress = set()
     v2e = []
     for event in events:
+        if(event['address'] not in _Address): continue
         _ = ProcessV2Events(event)
         if _: v2e.append(_)
     # ToBeUpdatePairs = ToBeUpdateAddress & ListeningPairs
@@ -259,6 +270,26 @@ def PushRangeBlock(currentHandleBlockNumber, NextHandleBlockNumber):
     processedEvent = v2e + v3e
     processedEvent.sort(key=lambda x : x.split()[-1])
     return (processedEvent, len(processedEvent) / (time() - st))
+
+def fetchAllPoolNPair(L, R):
+    Address = set()
+    steplen = 1024
+    with Pool(processes=12) as pool:
+        mulret = [ pool.apply_async(fetchLogs, ({"fromBlock": hex(i), "toBlock": hex(i + steplen - 1),"address": Web3.toChecksumAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"), "topics": ["0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118"]}, False)) for i in range(L, R, steplen)]
+        print('fetch v3 pool')
+        for _ in tqdm(mulret):
+            logs = _.get()
+            for log in logs:
+                address =  Web3.toChecksumAddress("0x" + log["data"][-40:])
+                Address.add(address)
+        print('fetch v2 pool')
+        mulret = [ pool.apply_async(fetchLogs, ({"fromBlock": hex(i), "toBlock": hex(i + steplen - 1),"address": Web3.toChecksumAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"), "topics": ["0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9"]}, False)) for i in range(L, R, steplen)]
+        for _ in tqdm(mulret):
+            logs = _.get()
+            for log in logs:
+                address =  Web3.toChecksumAddress("0x" + log["data"][2:66][-40:])
+                Address.add(address)
+    return Address
 
 def testPRCS():
     for uri in commonRPCPointUri:
@@ -277,16 +308,31 @@ if __name__ == '__main__':
     testPRCS()
     steplen = 10
     startPoint = getDbLatestBlock() + 1
+    while True:    
+        endPoint   = getLatestBlock()
+        if(startPoint > endPoint):
+            print(f'{startPoint} 还没出现哦 QAQ')
+            sleep(1)
 
-    # ListeningPairs = set([i.decode('utf-8') for i in list(Red.hkeys("v2pairsData"))])
+        # ListeningPairs = set([i.decode('utf-8') for i in list(Red.hkeys("v2pairsData"))])
+        # ListeningPools = set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
 
-    with Pool(processes=25) as pool:
-        mulret = [pool.apply_async(PushRangeBlock, (currentHandleBlockNumber, currentHandleBlockNumber + steplen)) for currentHandleBlockNumber in range(startPoint, getLatestBlock(), steplen)]
-        with tqdm(mulret) as t:
-            for _ in t:
-                tot = 0
-                ret, rate = _.get()
-                for event in ret:
-                    Red.rpush('queue', event)
-                    tot += 1
-                t.set_description(f'saved {tot} events. rate = {rate} e/s')
+        ListeningAddress = set([i.decode('utf-8') for i in list(Red.hkeys("v2pairsData"))]) | set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
+        print(f'All pool/pair cnt = {len(ListeningAddress)}')
+        dd = fetchAllPoolNPair(startPoint, endPoint)
+        ListeningAddress = ListeningAddress | dd 
+        ListeningAddress.add(Web3.toChecksumAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"))
+        ListeningAddress.add(Web3.toChecksumAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"))
+        print(f'All pool/pair cnt = {len(ListeningAddress)}')
+
+        with Pool(processes=4) as pool:
+            mulret = [pool.apply_async(PushRangeBlock, (currentHandleBlockNumber, currentHandleBlockNumber + steplen, ListeningAddress)) for currentHandleBlockNumber in range(startPoint, endPoint, steplen)]
+            with tqdm(mulret) as t:
+                for _ in t:
+                    tot = 0
+                    ret, rate = _.get()
+                    for event in ret:
+                        Red.rpush('queue', event)
+                        tot += 1
+                    t.set_description(f'saved {tot} events. rate = {rate} e/s')
+        startPoint = endPoint + 1

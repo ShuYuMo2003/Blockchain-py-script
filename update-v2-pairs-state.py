@@ -8,7 +8,37 @@ from random import choice
 from tqdm import tqdm
 
 w3 = Web3(Web3.HTTPProvider("https://eth.public-rpc.com/"))
-Red = redis.Redis(host='127.0.0.1',port=6379,db=0)
+Red = redis.Redis(host='192.168.80.128',port=8080,db=0)
+
+commonRPCPointUri = [
+    "https://eth.public-rpc.com/",
+    "https://eth.public-rpc.com/",
+    # "https://eth.llamarpc.com",
+    # "https://uk.rpc.blxrbdn.com",
+    # "https://virginia.rpc.blxrbdn.com",
+    # "https://eth.rpc.blxrbdn.com",
+    "https://ethereum.blockpi.network/v1/rpc/public",
+    "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
+    "https://eth-mainnet.public.blastapi.io",
+    # "https://rpc.builder0x69.io",
+    "https://ethereum.publicnode.com",
+    "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
+    "https://1rpc.io/eth",
+    "https://rpc.flashbots.net",
+    "https://rpc.payload.de",
+    "https://api.zmok.io/mainnet/oaen6dy8ff6hju9k",
+    "https://rpc.ankr.com/eth",
+    "https://eth-rpc.gateway.pokt.network",
+    "https://api.securerpc.com/v1",
+    "https://cloudflare-eth.com",
+    "https://endpoints.omniatech.io/v1/eth/mainnet/public",
+    "https://beta-be.gashawk.io:3001/proxy/rpc",
+    "https://eth.api.onfinality.io/public",
+    # "https://rpc.coinsdo.com/eth",
+
+]
+
+commonRPCPointHandle = [Web3(Web3.HTTPProvider(Uri)) for Uri in commonRPCPointUri]
 
 def fetchV2PairsReserve(address, afterBlockNumber):
     while True:
@@ -50,17 +80,31 @@ def fetchV2PairsReserve(address, afterBlockNumber):
     else:
         return (address, None, None)
 
+ABIABI = json.load(open("abis/v2_pair.abi"))
+def fetchV2PairsCurrentReserve(address):
+    while True:
+        try: 
+            ret = choice(commonRPCPointHandle).eth.contract(Web3.toChecksumAddress(address), abi=ABIABI).functions.getReserves().call()
+            break
+        except Exception as e:
+            print(f"Fetch {address} Reserve error, Message: ", str(e))
+
+
+
+    return [address, (int(ret[0])), (int(ret[1]))]
+
 if __name__ == '__main__':
+    print(fetchV2PairsReserve('0x7b6abc75cf6c8abe52e047e11240d1aa9ed784e3', 16897494))
+    exit(0)
     NowBlock = int(Red.get('UpdatedToBlockNumber'))
     AllPairs = set([i.decode('utf-8') for i in list(Red.hkeys('v2pairsData'))])
-    with Pool(processes=4) as pool:
-        result = [pool.apply_async(fetchV2PairsReserve, (address, NowBlock)) for address in AllPairs]
+    cnt = 0
+    with Pool(processes=12) as pool:
+        result = [pool.apply_async(fetchV2PairsCurrentReserve, (address,)) for address in AllPairs]
 
         for single in tqdm(result):
             ret = single.get()
-            assert(ret[1] and ret[2])
-            # Red.rpush
-            print(f'2set {ret[0]} {ret[1]} {ret[2]} ' + str(NowBlock) + '99999')
+            Red.rpush('queue', f'2set {ret[0]} {ret[1]} {ret[2]} ' + str(NowBlock) + '99999')
 
 
     pass
