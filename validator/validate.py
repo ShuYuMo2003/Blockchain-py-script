@@ -46,7 +46,7 @@ def V2reserve(address, afterBlockNumber):
                     "value": "0x0",
                     "data": "0x0902f1ac"
                     },
-                    hex(afterBlockNumber),
+                    'latest', #hex(afterBlockNumber),
                 ]
             })
         )
@@ -112,7 +112,7 @@ def SwapV3(address, amount, zeroToOne, afterBlockNumber):
           "value": "0x0",
           "data": f"0x128acb08000000000000000000000000{fakeSender}{ Meet64(1 if zeroToOne else 0) }{ Meet64(hex(amount)[2:]) }{Meet64(hex(4295128740)[2:] if zeroToOne else hex(1461446703485210103287273052203988822378723970341)[2:] )}00000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000000"
         },
-        hex(afterBlockNumber)
+        'latest', #hex(afterBlockNumber)
       ]
     })
     # print(payload)
@@ -149,9 +149,9 @@ def SwapV2(address, amount, zeroToOne, afterBlockNumber):
 
 
 if __name__ == '__main__':
-    amount = int(5.15363e+18)
+    amount = int(5e17)
     init = amount
-    block = 16898272
+    block = 16903739
     with open('data.txt', 'r') as f:
         for _raw_ in f.readlines():
             raw = _raw_.split()
@@ -166,7 +166,7 @@ if __name__ == '__main__':
             else: assert(False)
             # print(' = ', afteramount)
 
-            print(f'{raw[0]} {raw[1]} {amount} -> {afteramount}')
+            print(f'{raw[0]} {raw[1]} {raw[2]} {raw[3]} {amount} -> {afteramount}')
             amount = afteramount
         
     print('revenue ', (amount - init) / 1e18)

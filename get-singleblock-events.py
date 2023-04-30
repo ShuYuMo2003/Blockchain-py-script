@@ -4,12 +4,13 @@ from multiprocessing import Pool, cpu_count
 from time import sleep, time
 from tqdm import tqdm
 import json
+from random import randint
 from requests import post
 import redis
 from random import choice
 import random
 
-w3 = Web3(Web3.HTTPProvider("https://eth.public-rpc.com/"))
+w3 = Web3(Web3.HTTPProvider("https://rpc.ankr.com/eth/4163a6afb3facd3e982c1d99cfe4ea9464ac1f19e4f5eab027ae3fb4e074e039"))
 Red = redis.Redis(host='192.168.80.128',port=8080,db=0)
 
 BlackList = [
@@ -32,32 +33,33 @@ tendlyEthRPCPoint = ['https://mainnet.gateway.tenderly.co/2jRiGkCHOkLQ9BjEkbNhal
                      'https://mainnet.gateway.tenderly.co/5QC1CBB3O2OEzlVXqXXwrS']
 
 commonRPCPointUri = [
-    "https://eth.public-rpc.com/",
-    # "https://eth.public-rpc.com/",
-    # "https://eth.llamarpc.com",
-    # "https://uk.rpc.blxrbdn.com",
-    # "https://virginia.rpc.blxrbdn.com",
-    # "https://eth.rpc.blxrbdn.com",
-    "https://ethereum.blockpi.network/v1/rpc/public",
-    # "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
-    # "https://eth-mainnet.public.blastapi.io",
-    # "https://rpc.builder0x69.io",
-    # "https://ethereum.publicnode.com",
-    # "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
-    # "https://1rpc.io/eth",
-    # "https://rpc.flashbots.net",
-    # "https://rpc.payload.de",
-    # "https://api.zmok.io/mainnet/oaen6dy8ff6hju9k",
-    "https://rpc.ankr.com/eth",
-    # "https://eth-rpc.gateway.pokt.network",
-    # "https://api.securerpc.com/v1",
-    # "https://cloudflare-eth.com",
-    # "https://endpoints.omniatech.io/v1/eth/mainnet/public",
-    # "https://beta-be.gashawk.io:3001/proxy/rpc",
-    # "https://eth.api.onfinality.io/public",
-    # "https://rpc.coinsdo.com/eth",
-    # "https://eth.api.onfinality.io/public",
-    # "https://rpc.coinsdo.com/eth",
+    # "http://10.70.113.236:8551",
+    "https://rpc.ankr.com/eth/4163a6afb3facd3e982c1d99cfe4ea9464ac1f19e4f5eab027ae3fb4e074e039",    
+    # # "https://eth.public-rpc.com/",
+    # # "https://eth.llamarpc.com",
+    # # "https://uk.rpc.blxrbdn.com",
+    # # "https://virginia.rpc.blxrbdn.com",
+    # # "https://eth.rpc.blxrbdn.com",
+    # "https://ethereum.blockpi.network/v1/rpc/public",    
+    # # "https://eth-mainnet.nodereal.io/v1/1659dfb40aa24bbb8153a677b98064d7",
+    # # "https://eth-mainnet.public.blastapi.io",
+    # # "https://rpc.builder0x69.io",
+    # # "https://ethereum.publicnode.com",
+    # # "https://eth-mainnet.rpcfast.com?api_key=xbhWBI1Wkguk8SNMu1bvvLurPGLXmgwYeC4S6g2H7WdwFigZSmPWVZRxrskEQwIf",
+    # # "https://1rpc.io/eth",
+    # # "https://rpc.flashbots.net",
+    # # "https://rpc.payload.de",
+    # # "https://api.zmok.io/mainnet/oaen6dy8ff6hju9k",
+    # "https://rpc.ankr.com/eth",   
+    # # "https://eth-rpc.gateway.pokt.network",
+    # # "https://api.securerpc.com/v1",
+    # # "https://cloudflare-eth.com",
+    # # "https://endpoints.omniatech.io/v1/eth/mainnet/public",
+    # # "https://beta-be.gashawk.io:3001/proxy/rpc",
+    # # "https://eth.api.onfinality.io/public",
+    # # "https://rpc.coinsdo.com/eth",
+    # # "https://eth.api.onfinality.io/public",
+    # # "https://rpc.coinsdo.com/eth",
 ]
 
 commonRPCPointHandle = [Web3(Web3.HTTPProvider(Uri)) for Uri in commonRPCPointUri]
@@ -304,11 +306,13 @@ def testPRCS():
         print(f'{uri[7:15]}\t{delta}\t{msg}')
     pass
 
+eventsHandle = open('eventsForPertest.txt', 'w')
+
 if __name__ == '__main__':
     testPRCS()
-    steplen = 10
+    steplen = 13
     startPoint = getDbLatestBlock() + 1
-    while True:    
+    while True:
         endPoint   = getLatestBlock()
         if(startPoint > endPoint):
             print(f'{startPoint} 还没出现哦 QAQ')
@@ -320,18 +324,28 @@ if __name__ == '__main__':
         ListeningAddress = set([i.decode('utf-8') for i in list(Red.hkeys("v2pairsData"))]) | set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
         print(f'All pool/pair cnt = {len(ListeningAddress)}')
         dd = fetchAllPoolNPair(startPoint, endPoint)
-        ListeningAddress = ListeningAddress | dd 
+        ListeningAddress = ListeningAddress | dd
         ListeningAddress.add(Web3.toChecksumAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"))
         ListeningAddress.add(Web3.toChecksumAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"))
         print(f'All pool/pair cnt = {len(ListeningAddress)}')
 
-        with Pool(processes=4) as pool:
+        with Pool(processes=8) as pool:
             mulret = [pool.apply_async(PushRangeBlock, (currentHandleBlockNumber, currentHandleBlockNumber + steplen, ListeningAddress)) for currentHandleBlockNumber in range(startPoint, endPoint, steplen)]
             with tqdm(mulret) as t:
                 for _ in t:
                     tot = 0
                     ret, rate = _.get()
-                    for event in ret:
+
+                    L = randint(1, len(ret) - 2)
+
+                    part0 = ret[0:L]
+                    part1 = ret[L:]
+                    timestamp = part0[-1].replace('\n', ' ').split()[-1]
+                    resultEvents = part0 + part1# + part1
+                    # print('============================\n\n', resultEvents)
+                    for event in resultEvents:
+                        # eventsHandle.write(event + '#')
+                        # eventsHandle.flush()
                         Red.rpush('queue', event)
                         tot += 1
                     t.set_description(f'saved {tot} events. rate = {rate} e/s')
