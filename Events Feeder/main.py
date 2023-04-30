@@ -4,7 +4,7 @@ from web3 import Web3
 import redis
 from multiprocessing import Pool
 
-from time import sleep, time
+from time import sleep, time, asctime, localtime
 from tqdm import tqdm
 
 from queue import Queue
@@ -14,8 +14,8 @@ from threading import Thread
 from utils import getLatestBlock, getDbLatestBlock, ProcessV3Event, ProcessV2Event, EventsListener, fetchProcessHandle, UpdateV2Reserve, feedDb, fetchLogs
 
 
-RPC_URI = 'https://rpc.ankr.com/eth/4163a6afb3facd3e982c1d99cfe4ea9464ac1f19e4f5eab027ae3fb4e074e039'
-WSS_URI = 'wss://rpc.ankr.com/eth/ws/4163a6afb3facd3e982c1d99cfe4ea9464ac1f19e4f5eab027ae3fb4e074e039'
+RPC_URI = 'http://10.67.196.185:8545' #'https://rpc.ankr.com/eth/4163a6afb3facd3e982c1d99cfe4ea9464ac1f19e4f5eab027ae3fb4e074e039'
+WSS_URI = 'ws://10.67.196.185:8545'
 web3 = Web3(Web3.HTTPProvider(RPC_URI))
 
 StepLen = 7
@@ -54,6 +54,7 @@ def Listener():
     global currentFetchedEvents, LastBlock
 
     def handleEvent(e):
+        global currentFetchedEvents, LastBlock
         block = int(e['blockNumber'], 16)
         if block != LastBlock:
             events = []
@@ -63,7 +64,7 @@ def Listener():
                 repeat += 1
                 sleep(0.1)
 
-            print('!! New Block built: ', block, ' events: ', len(events), ' repeat ', repeat, 'delay', repeat * 0.1, 's')
+            print(asctime( localtime(time()) ), '!! New Block built: ', block, ' events: ', len(events), ' repeat ', repeat, 'delay', repeat * 0.1, 's')
 
             for e in events:
                 if e['address'] in v3Addresses:
