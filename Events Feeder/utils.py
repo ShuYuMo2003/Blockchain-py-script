@@ -1,28 +1,43 @@
 import asyncio
 import json
 import requests
-from websockets import connect
+from  websockets.sync.client import connect
 import web3
 from time import sleep, time
 from multiprocessing import Pool
 from tqdm import tqdm
 
-async def get_event(callback, wssurl):
-    async with connect(wssurl) as ws:
-        await ws.send('{"id": 1, "method": "eth_subscribe", "params": ["logs", {}]}')
-        subscription_response = await ws.recv()
-        print(subscription_response)
-        while True:
-            try:
-                message = await asyncio.wait_for(ws.recv(), timeout=60)
-                callback(json.loads(message))
-            except Exception as e:
-                print(e)
+from hexbytes import HexBytes
 
+class HexJsonEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, HexBytes):
+            return obj.hex()
+        return super().default(obj)
+
+
+def feedDb(events, db):
+    for event in events:
+        if(event):
+            db.rpush('queue', event)
+            with open('events.txt', 'a') as f:
+                f.write(event + '\n')
 
 def EventsListener(callback, wssurl):
-    while True:
-        asyncio.run(get_event(callback, wssurl))
+    with connect(wssurl) as ws:
+        ws.send('{"id": 1, "method": "eth_subscribe", "params": ["logs", {}]}')
+        subscription_response = ws.recv()
+        print(subscription_response)
+        while True:
+            # try:
+                message = ws.recv()
+                callback(json.loads(message)['params']['result'])
+                with open('raw_event.txt', 'a') as f:
+                    f.write(message + '\n')
+
+            # except Exception as e:
+                # print("get_event", e, json.loads(message))
+
 
 def getLatestBlock(w3):
     while True:
@@ -45,14 +60,22 @@ def fetchLogs(blockL, blockR):
             print("fetchLogs", str(e))
             continue
 
+
 __uniswapV2abi = json.loads(open('v2.abi', 'r').read())
-def fetchV2PairReserve(w3, address, block):
+def fetchV2PairReserve(address, block):
+    if(isinstance(block, str)):
+        block = int(block, 16)
     while True:
         try:
-            ret = w3.eth.contract(w3.toChecksumAddress(address), abi=__uniswapV2abi).functions.getReserves().call(block_identifier=block)
+            ret = __web3.eth.contract(__web3.toChecksumAddress(address), abi=__uniswapV2abi).functions.getReserves().call(block_identifier=block)
             break
         except Exception as e:
-            print(f"Fetch {address} Reserve error, Message: ", str(e))
+            if("decode contract function call" in str(e)):
+                # print('WARNING:', str(e))
+                pass
+            else:
+                print('getReserves failed', str(e), type(e))
+            sleep(0.1)
 
     return [address, (int(ret[0])), (int(ret[1]))]
 
@@ -64,11 +87,37 @@ def getDbLatestBlock(db):
 
     return int(db.get("UpdatedToBlockNumber"))
 
+
+__history = {}
 def ProcessV2Event(w3, log):
-    outs = f'2set ' + ' '.join(map(str, fetchV2PairReserve(w3, log['address'], log['blockNumber']))) + ' '
-    return outs + str(log['blockNumber']) + '0' * (5 - len(str(log['logIndex']))) + str(log['logIndex']) # blocknumber + 5位长度 logindex
+    if('AttributeDict' in str(type(log))):
+        log = dict(log)
+        log = json.loads(json.dumps(log, cls=HexJsonEncoder))
+        log['blockNumber'] = hex(log['blockNumber'])
+        log['logIndex'] = hex(log['logIndex'])
+
+    global __history
+    log['address'] = web3.Web3.toChecksumAddress(log['address'])
+    block = int(log['blockNumber'], 16)
+    logg = int(log['logIndex'], 16)
+
+    if __history.get(log['address'], -1) == block:
+        return ""
+
+    __history[log['address']] = block
+
+    outs = f'2set ' + ' '.join(map(str, fetchV2PairReserve(log['address'], log['blockNumber']))) + ' '
+
+    return outs + str(block) + '0' * (5 - len(str(logg))) + str(logg) # blocknumber + 5位长度 logindex
 
 def ProcessV3Event(w3, log):
+    if('AttributeDict' in str(type(log))):
+        log = dict(log)
+        log = json.loads(json.dumps(log, cls=HexJsonEncoder))
+        log['blockNumber'] = hex(log['blockNumber'])
+        log['logIndex'] = hex(log['logIndex'])
+
+    log['address'] = web3.Web3.toChecksumAddress(log['address'])
     def hexstring2uint(s):
         if s[:2] == "0x":
             s = s[2:]
@@ -96,18 +145,18 @@ def ProcessV3Event(w3, log):
         return ""
 
 
-    if log["topics"][0].hex() == topicsSign['initialize']:
-        outs = f"initialize {log['address']} {hexstring2uint(log['data'][:66])} {hexstring2int(log['data'][66:130])}\n"
-    elif log["topics"][0].hex() == topicsSign['mint']:
+    if log["topics"][0] == topicsSign['initialize']:
+        outs = f"initialize {log['address']} {hexstring2uint(log['data'][:66])} {hexstring2int(log['data'][66:130])} "
+    elif log["topics"][0] == topicsSign['mint']:
         outs = " ".join([str(e) for e in ["mint",
             log['address'],
-            hexstring2int(log["topics"][2].hex()),
-            hexstring2int(log["topics"][3].hex()),
+            hexstring2int(log["topics"][2]),
+            hexstring2int(log["topics"][3]),
             hexstring2uint(log["data"][66:130]),
             hexstring2uint(log["data"][130:194]),
-            hexstring2uint(log["data"][194:258])]]) + "\n"
+            hexstring2uint(log["data"][194:258])]]) + " "
 
-    elif log["topics"][0].hex() == topicsSign['swap']:
+    elif log["topics"][0] == topicsSign['swap']:
         amount0 = hexstring2int(log["data"][2:66])
         amount1 = hexstring2int(log["data"][66:130])
         outs = " ".join([str(e) for e in["swap",
@@ -118,35 +167,37 @@ def ProcessV3Event(w3, log):
             amount0,
             amount1,
             hexstring2uint(log["data"][194:258]),
-            hexstring2int(log["data"][258:322])]]) + "\n"
+            hexstring2int(log["data"][258:322])]]) + " "
 
-    elif log["topics"][0].hex() == topicsSign['burn']:
+    elif log["topics"][0] == topicsSign['burn']:
         outs = " ".join([str(e) for e in [
             "burn",
             log['address'],
-            hexstring2int(log["topics"][2].hex()),
-            hexstring2int(log["topics"][3].hex()),
+            hexstring2int(log["topics"][2]),
+            hexstring2int(log["topics"][3]),
             hexstring2uint(log["data"][2:66]),
             hexstring2uint(log["data"][66:130]),
             hexstring2uint(log["data"][130:194])
-        ]]) + "\n"
+        ]]) + " "
 
 
     _ = log
     if(outs != ""):
-        rawdata = outs + str(_['blockNumber']) + '0' * (5 - len(str(_['logIndex']))) + str(_['logIndex']) # blocknumber + 5位长度 logindex
+        block = int(_['blockNumber'], 16)
+        logg = int(_['logIndex'], 16)
+        rawdata = outs + str(block) + '0' * (5 - len(str(logg))) + str(logg) # blocknumber + 5位长度 logindex
         return rawdata
     else:
         return ""
 
 def fetchProcessHandle(blockL, blockR, v2Addresses, v3Addresses):
-    logs = fetchLogs(blockL, blockR)
+    logs = []
+    while len(logs) < 1:
+        logs = fetchLogs(blockL, blockR)
+        sleep(0.5)
     result = []
     for event in logs:
-        # if event['address'] in v2Addresses:
-        #     v2e = ProcessV2Event(__web3, event)
-        #     result.append(v2e)
-        if event['address'] in v3Addresses:
+        if __web3.toChecksumAddress(event['address']) in v3Addresses:
             v3e = ProcessV3Event(__web3, event)
             result.append(v3e)
     return result
@@ -158,7 +209,6 @@ def UpdateV2Reserve(v2Addresses, block):
 
         for single in tqdm(result):
             ret = single.get()
-            idd += 1
-            sss = f'2set {ret[0]} {ret[1]} {ret[2]} ' + str(block) + ('0' * (5 - len(str(idd)))) + str(idd)
+            sss = f'2set {ret[0]} {ret[1]} {ret[2]} ' + '0'
             event.append(sss)
     return event

@@ -205,20 +205,20 @@ def ProcessV3Events(log):
             hexstring2uint(log["data"][130:194])
         ]]) + "\n"
 
-    elif log["topics"][0].hex() == topicsSign['poolcreated']:
-        maxLiquidityPerTick = GetMaxLiquidityPerTick(log)
-        address =  Web3.toChecksumAddress("0x" + log["data"][-40:])
-        token0 = to_token_address(log["topics"][1])
-        token1 = to_token_address(log["topics"][2])
-        outs = " ".join([str(e) for e in [
-            "poolcreated",
-            token0, # Token 0
-            token1, # Token 1
-            hexstring2int(log["topics"][3].hex()), # fee
-            hexstring2int(log["data"][2:66]), # tickSpacing
-            maxLiquidityPerTick, # maxLiquidityPerTick
-            address, # poolAddress
-        ]]) + "\n"
+    # elif log["topics"][0].hex() == topicsSign['poolcreated']:
+    #     maxLiquidityPerTick = GetMaxLiquidityPerTick(log)
+    #     address =  Web3.toChecksumAddress("0x" + log["data"][-40:])
+    #     token0 = to_token_address(log["topics"][1])
+    #     token1 = to_token_address(log["topics"][2])
+    #     outs = " ".join([str(e) for e in [
+    #         "poolcreated",
+    #         token0, # Token 0
+    #         token1, # Token 1
+    #         hexstring2int(log["topics"][3].hex()), # fee
+    #         hexstring2int(log["data"][2:66]), # tickSpacing
+    #         maxLiquidityPerTick, # maxLiquidityPerTick
+    #         address, # poolAddress
+    #     ]]) + "\n"
 
 
     _ = log
@@ -257,10 +257,10 @@ def PushRangeBlock(currentHandleBlockNumber, NextHandleBlockNumber, _Address):
     # process v2 events
     # ToBeUpdateAddress = set()
     v2e = []
-    for event in events:
-        if(event['address'] not in _Address): continue
-        _ = ProcessV2Events(event)
-        if _: v2e.append(_)
+    # for event in events:
+    #     if(event['address'] not in _Address): continue
+    #     _ = ProcessV2Events(event)
+    #     if _: v2e.append(_)
     # ToBeUpdatePairs = ToBeUpdateAddress & ListeningPairs
     # print(f'The state of {len(ToBeUpdatePairs)} pairs changed. fetching new state:')
     # with Pool(processes=2) as pool:
@@ -310,7 +310,7 @@ eventsHandle = open('eventsForPertest.txt', 'w')
 
 if __name__ == '__main__':
     testPRCS()
-    steplen = 13
+    steplen = 7
     startPoint = getDbLatestBlock() + 1
     while True:
         endPoint   = getLatestBlock()
@@ -323,25 +323,22 @@ if __name__ == '__main__':
 
         ListeningAddress = set([i.decode('utf-8') for i in list(Red.hkeys("v2pairsData"))]) | set([i.decode('utf-8') for i in list(Red.hkeys("v3poolsData"))])
         print(f'All pool/pair cnt = {len(ListeningAddress)}')
-        dd = fetchAllPoolNPair(startPoint, endPoint)
-        ListeningAddress = ListeningAddress | dd
-        ListeningAddress.add(Web3.toChecksumAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"))
-        ListeningAddress.add(Web3.toChecksumAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"))
+        # dd = fetchAllPoolNPair(startPoint, endPoint)
+        # ListeningAddress = ListeningAddress | dd
+        # ListeningAddress.add(Web3.toChecksumAddress("0x1F98431c8aD98523631AE4a59f267346ea31F984"))
+        # ListeningAddress.add(Web3.toChecksumAddress("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"))
         print(f'All pool/pair cnt = {len(ListeningAddress)}')
 
-        with Pool(processes=8) as pool:
+        with Pool(processes=6) as pool:
             mulret = [pool.apply_async(PushRangeBlock, (currentHandleBlockNumber, currentHandleBlockNumber + steplen, ListeningAddress)) for currentHandleBlockNumber in range(startPoint, endPoint, steplen)]
             with tqdm(mulret) as t:
                 for _ in t:
                     tot = 0
                     ret, rate = _.get()
 
-                    L = randint(1, len(ret) - 2)
+                    # L = randint(1, len(ret) - 2)
 
-                    part0 = ret[0:L]
-                    part1 = ret[L:]
-                    timestamp = part0[-1].replace('\n', ' ').split()[-1]
-                    resultEvents = part0 + part1# + part1
+                    resultEvents = ret # + part1
                     # print('============================\n\n', resultEvents)
                     for event in resultEvents:
                         # eventsHandle.write(event + '#')
